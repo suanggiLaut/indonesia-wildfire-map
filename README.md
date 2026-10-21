@@ -2,34 +2,49 @@
 
 **Peta titik panas (hotspot) kebakaran hutan dan lahan di Indonesia secara real-time dari satelit NASA.**
 
+🌐 **Live Demo:** [indonesia-wildfire-map.vercel.app](https://indonesia-wildfire-map.vercel.app/)
+
 ![Next.js](https://img.shields.io/badge/Next.js-14-black?logo=next.js)
 ![Leaflet](https://img.shields.io/badge/Leaflet-1.9-green?logo=leaflet)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-blue?logo=tailwindcss)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
 
 ## ✨ Fitur
 
-- 🗺️ **Peta interaktif** — Leaflet.js dengan dark basemap (CARTO)
-- 🛰️ **Data real-time** — NASA FIRMS (VIIRS 375m & MODIS 1km)
+- 🗺️ **Peta interaktif** — Leaflet.js dengan dark basemap (OpenStreetMap dark theme)
+- 🛰️ **Data real-time** — NASA FIRMS WFS (VIIRS SNPP, NOAA-20, NOAA-21 & MODIS)
 - 🕐 **Time window** — 24 jam, 48 jam, atau 7 hari
-- 📊 **Statistik per provinsi** — chart horizontal bars
+- 📊 **Statistik per provinsi** — chart horizontal bars (top 15 provinsi)
 - 🔥 **Fire Power classification** — LOW → EXTREME berdasarkan FRP (MW)
-- 📱 **Responsive** — mobile-friendly dengan sidebar collapse
-- 🌙 **Dark terminal aesthetic** — monospace, ASCII header
+- 🗂️ **Filter provinsi** — 38 provinsi Indonesia dengan fly-to otomatis
+- 🌙 **Dark terminal aesthetic** — JetBrains Mono, ASCII header
 - ⚡ **Auto-refresh** — data diperbarui setiap 5 menit
+- 📦 **Server-side caching** — API proxy dengan 5 menit cache
 
 ## 🛠️ Tech Stack
 
-| Layer      | Technology              |
-|------------|------------------------|
-| Framework  | Next.js 14 (App Router)|
-| Map        | Leaflet + react-leaflet|
-| Styling    | Tailwind CSS           |
-| Data       | NASA FIRMS API         |
-| Language   | TypeScript             |
-| Deploy     | Vercel (Singapore)     |
+| Layer      | Technology                        |
+|------------|----------------------------------|
+| Framework  | Next.js 14 (App Router)          |
+| Map        | Leaflet.js                        |
+| Styling    | Tailwind CSS                      |
+| Data       | NASA FIRMS WFS API (GeoJSON)      |
+| Language   | TypeScript                        |
+| Font       | JetBrains Mono                    |
+| Deploy     | Vercel (Singapore region)         |
+
+## 🔥 Fire Power Classification
+
+| Level     | FRP (MW)   | Warna   |
+|-----------|------------|---------|
+| LOW       | < 20       | 🟡 Kuning |
+| MODERATE  | 20 - 50    | 🟠 Orange |
+| HIGH      | 50 - 200   | 🔴 Merah  |
+| VERY HIGH | 200 - 500  | 🟣 Ungu   |
+| EXTREME   | ≥ 500      | ⚪ Putih  |
 
 ## 🚀 Quick Start
 
@@ -37,7 +52,7 @@
 
 - Node.js 18+
 - npm or yarn
-- NASA FIRMS API key (free): https://firms.modaps.eosdis.nasa.gov/api/
+- NASA FIRMS MAP KEY (free): [firms.modaps.eosdis.nasa.gov/api/](https://firms.modaps.eosdis.nasa.gov/api/)
 
 ### Setup
 
@@ -51,7 +66,7 @@ npm install
 
 # Set up environment variables
 cp .env.example .env.local
-# Edit .env.local and add your NASA FIRMS API key
+# Edit .env.local dan masukkan NASA FIRMS MAP KEY kamu
 
 # Run development server
 npm run dev
@@ -68,9 +83,11 @@ npm start
 
 ## 🌐 Deploy ke Vercel
 
-1. Push ke GitHub
+1. Fork / push repo ke GitHub
 2. Import repository di [vercel.com/new](https://vercel.com/new)
-3. Tambah environment variable: `NASA_FIRMS_KEY` = API key kamu
+3. Tambah environment variable:
+   - **Key:** `NASA_FIRMS_KEY`
+   - **Value:** MAP KEY dari NASA FIRMS
 4. Deploy ✅
 
 Region sudah dikonfigurasi ke **Singapore (sin1)** untuk latency terbaik ke Indonesia.
@@ -79,8 +96,8 @@ Region sudah dikonfigurasi ke **Singapore (sin1)** untuk latency terbaik ke Indo
 
 | Source | Description |
 |--------|-------------|
-| [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) | Fire Information for Resource Management System — hotspot dari VIIRS & MODIS |
-| [CARTO](https://carto.com/) | Dark basemap tiles |
+| [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) | Fire Information for Resource Management System — hotspot dari VIIRS (SNPP, NOAA-20, NOAA-21) & MODIS via WFS endpoint |
+| [OpenStreetMap](https://www.openstreetmap.org/) | Basemap tiles dengan CSS dark filter |
 
 ## 📁 Project Structure
 
@@ -88,20 +105,20 @@ Region sudah dikonfigurasi ke **Singapore (sin1)** untuk latency terbaik ke Indo
 indonesia-wildfire-map/
 ├── src/
 │   ├── app/
-│   │   ├── api/hotspots/route.ts   # NASA FIRMS proxy API
-│   │   ├── globals.css              # Tailwind + dark theme
-│   │   ├── layout.tsx               # SEO metadata
-│   │   └── page.tsx                 # Main page
+│   │   ├── api/hotspots/route.ts   # NASA FIRMS WFS proxy (GeoJSON)
+│   │   ├── globals.css              # Tailwind + dark theme + Leaflet overrides
+│   │   ├── layout.tsx               # SEO metadata (Indonesian)
+│   │   └── page.tsx                 # Main page + sidebar + controls
 │   ├── components/
-│   │   ├── ControlPanel.tsx         # Filter controls
-│   │   ├── FireMap.tsx              # Leaflet map
-│   │   ├── FirePowerChart.tsx       # Power mix chart
-│   │   └── ProvinceChart.tsx        # Province bar chart
+│   │   ├── ControlPanel.tsx         # Filter: time, sensor, fire power, provinsi
+│   │   ├── FireMap.tsx              # Leaflet map + dark OSM tiles
+│   │   ├── FirePowerChart.tsx       # Fire power distribution chart
+│   │   └── ProvinceChart.tsx        # Top 15 province bar chart
 │   ├── lib/
-│   │   └── firms.ts                 # NASA FIRMS data fetcher
+│   │   └── firms.ts                 # FIRMS data utilities
 │   └── types/
-│       └── index.ts                 # Types + province data
-├── vercel.json                      # Vercel config (SIN region)
+│       └── index.ts                 # TypeScript types + 38 province bounding boxes
+├── vercel.json                      # Vercel config (SIN1 region + cache headers)
 ├── .env.example
 ├── tailwind.config.ts
 └── package.json
@@ -117,4 +134,4 @@ MIT — feel free to use, modify, and share.
 
 ---
 
-*Data: [NASA FIRMS/GIBS](https://firms.modaps.eosdis.nasa.gov/) · Basemap: [CARTO](https://carto.com/)*
+*Data: [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) · Basemap: [OpenStreetMap](https://www.openstreetmap.org/)*
