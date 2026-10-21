@@ -35,16 +35,22 @@ export default function FireMap({
       attributionControl: true,
     });
 
-    // Dark basemap
-    L.tileLayer(
-      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    // Dark basemap - OSM tiles with CSS dark filter
+    const tileLayer = L.tileLayer(
+      "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       {
         attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-        subdomains: "abcd",
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         maxZoom: 19,
       }
     ).addTo(map);
+
+    // Apply dark theme via CSS filter
+    const tilePane = map.getPane("tilePane");
+    if (tilePane) {
+      tilePane.style.filter =
+        "invert(100%) hue-rotate(180deg) brightness(80%) contrast(90%)";
+    }
 
     markersRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;

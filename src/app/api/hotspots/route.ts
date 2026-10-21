@@ -3,26 +3,48 @@ import { Sensor, TimeWindow } from "@/types";
 
 const FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov/api/country/csv";
 
+// Source names to try in order (NASA updates these periodically)
+const VIIRS_SOURCES = ["VIIRS_SNPP_NRT", "VIIRS_SNPP_SP", "VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT"];
+const MODIS_SOURCES = ["MODIS_NRT", "MODIS_SP"];
+
+async function fetchWithFallback(apiKey: string, sources: string[], country: string, days: number): Promise<Response | null> {
+  for (const source of sources) {
+    const url = `${FIRMS_BASE}/${apiKey}/${source}/${country}/${days}`;
+    try {
+      const response = await fetch(url, {
+        headers: { Accept: "text/csv" },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (response.ok) {
+        const text = await response.text();
+        // Check if response is actually CSV data (not error HTML)
+        if (text.includes("latitude") || text.includes("lat")) {
+          return new Response(text, { status: 200 });
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const sensor = (searchParams.get("sensor") || "VIIRS") as Sensor;
   const timeWindow = (searchParams.get("window") || "24h") as TimeWindow;
 
   const days = timeWindow === "24h" ? 1 : timeWindow === "48h" ? 2 : 7;
-  const source = sensor === "VIIRS" ? "VIIRS_SNPP_NRT" : "MODIS_NRT";
+  const sources = sensor === "VIIRS" ? VIIRS_SOURCES : MODIS_SOURCES;
 
-  // Use environment variable for API key, fallback to DEMO_KEY
   const apiKey = process.env.NASA_FIRMS_KEY || "DEMO_KEY";
-  const url = `${FIRMS_BASE}/${apiKey}/${source}/IDN/${days}`;
 
   try {
-    const response = await fetch(url, {
-      headers: { Accept: "text/csv" },
-    });
+    const response = await fetchWithFallback(apiKey, sources, "IDN", days);
 
-    if (!response.ok) {
+    if (!response) {
       return NextResponse.json(
-        { error: "Failed to fetch from NASA FIRMS", status: response.status },
+        { error: "Failed to fetch from NASA FIRMS - all sources tried", sources_tried: sources },
         { status: 502 }
       );
     }
@@ -41,7 +63,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("FIRMS fetch error:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Internal server error", detail: String(error) },
       { status: 500 }
     );
   }
