@@ -73,7 +73,7 @@ function parseWfsFeatures(geojson: WfsResponse): HotspotData[] {
         acq_time: String(p.acq_time || p.ACQ_TIME || ""),
         satellite: String(p.satellite || p.SATELLITE || ""),
         instrument: String(p.instrument || p.INSTRUMENT || ""),
-        confidence: p.confidence || p.CONFIDENCE || "",
+        confidence: String(p.confidence || p.CONFIDENCE || ""),
         bright_ti4: Number(p.bright_ti4 || p.BRIGHT_TI4) || 0,
         bright_ti5: Number(p.bright_ti5 || p.BRIGHT_TI5) || 0,
         frp: Number(p.frp || p.FRP) || 0,
