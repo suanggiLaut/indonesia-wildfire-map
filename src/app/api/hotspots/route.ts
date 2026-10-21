@@ -1,72 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Sensor, TimeWindow } from "@/types";
 
-const FIRMS_BASE = "https://firms.modaps.eosdis.nasa.gov/api/country/csv";
+// WFS endpoint - works with MAP KEY (not CSV API which needs separate key)
+const FIRMS_WFS = "https://firms.modaps.eosdis.nasa.gov/mapserver/wfs/SouthEast_Asia";
 
-// Source names to try in order (NASA updates these periodically)
-const VIIRS_SOURCES = ["VIIRS_SNPP_NRT", "VIIRS_SNPP_SP", "VIIRS_NOAA20_NRT", "VIIRS_NOAA21_NRT"];
-const MODIS_SOURCES = ["MODIS_NRT", "MODIS_SP"];
+// Indonesia bounding box
+const INDO_BBOX = "-11,95,6,141";
 
-async function fetchWithFallback(apiKey: string, sources: string[], country: string, days: number): Promise<Response | null> {
-  for (const source of sources) {
-    const url = `${FIRMS_BASE}/${apiKey}/${source}/${country}/${days}`;
-    try {
-      const response = await fetch(url, {
-        headers: { Accept: "text/csv" },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (response.ok) {
-        const text = await response.text();
-        // Check if response is actually CSV data (not error HTML)
-        if (text.includes("latitude") || text.includes("lat")) {
-          return new Response(text, { status: 200 });
-        }
-      }
-    } catch {
-      continue;
-    }
+// WFS layer names per sensor and time window
+function getWfsLayers(sensor: Sensor, timeWindow: TimeWindow): string[] {
+  const hours = timeWindow === "24h" ? "24hrs" : timeWindow === "48h" ? "48hrs" : "7days";
+
+  if (sensor === "VIIRS") {
+    return [
+      `ms:fires_snpp_${hours}`,
+      `ms:fires_noaa20_${hours}`,
+      `ms:fires_noaa21_${hours}`,
+    ];
+  } else {
+    return [`ms:fires_modis_${hours}`];
   }
-  return null;
 }
 
-export async function GET(request: NextRequest) {
-  const searchParams = request.nextUrl.searchParams;
-  const sensor = (searchParams.get("sensor") || "VIIRS") as Sensor;
-  const timeWindow = (searchParams.get("window") || "24h") as TimeWindow;
+interface WfsFeature {
+  properties: Record<string, unknown>;
+  geometry: {
+    type: string;
+    coordinates: [number, number];
+  };
+}
 
-  const days = timeWindow === "24h" ? 1 : timeWindow === "48h" ? 2 : 7;
-  const sources = sensor === "VIIRS" ? VIIRS_SOURCES : MODIS_SOURCES;
-
-  const apiKey = process.env.NASA_FIRMS_KEY || "DEMO_KEY";
-
-  try {
-    const response = await fetchWithFallback(apiKey, sources, "IDN", days);
-
-    if (!response) {
-      return NextResponse.json(
-        { error: "Failed to fetch from NASA FIRMS - all sources tried", sources_tried: sources },
-        { status: 502 }
-      );
-    }
-
-    const csvText = await response.text();
-    const hotspots = parseCSV(csvText);
-
-    return NextResponse.json(
-      { data: hotspots, count: hotspots.length, fetched_at: new Date().toISOString() },
-      {
-        headers: {
-          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
-        },
-      }
-    );
-  } catch (error) {
-    console.error("FIRMS fetch error:", error);
-    return NextResponse.json(
-      { error: "Internal server error", detail: String(error) },
-      { status: 500 }
-    );
-  }
+interface WfsResponse {
+  type: string;
+  features?: WfsFeature[];
 }
 
 interface HotspotData {
@@ -86,45 +52,101 @@ interface HotspotData {
   daynight: string;
 }
 
-function parseCSV(csv: string): HotspotData[] {
-  const lines = csv.trim().split("\n");
-  if (lines.length < 2) return [];
+function parseWfsFeatures(geojson: WfsResponse): HotspotData[] {
+  if (!geojson.features || !Array.isArray(geojson.features)) return [];
 
-  const headers = lines[0].split(",");
-  const hotspots: HotspotData[] = [];
+  return geojson.features
+    .filter((f) => {
+      const [lng, lat] = f.geometry.coordinates;
+      return lat >= -11 && lat <= 6 && lng >= 95 && lng <= 141;
+    })
+    .map((f) => {
+      const p = f.properties;
+      const [lng, lat] = f.geometry.coordinates;
+      return {
+        latitude: lat,
+        longitude: lng,
+        brightness: Number(p.brightness || p.bright_ti4) || 0,
+        scan: Number(p.scan) || 0,
+        track: Number(p.track) || 0,
+        acq_date: String(p.acq_date || p.ACQ_DATE || ""),
+        acq_time: String(p.acq_time || p.ACQ_TIME || ""),
+        satellite: String(p.satellite || p.SATELLITE || ""),
+        instrument: String(p.instrument || p.INSTRUMENT || ""),
+        confidence: p.confidence || p.CONFIDENCE || "",
+        bright_ti4: Number(p.bright_ti4 || p.BRIGHT_TI4) || 0,
+        bright_ti5: Number(p.bright_ti5 || p.BRIGHT_TI5) || 0,
+        frp: Number(p.frp || p.FRP) || 0,
+        daynight: String(p.daynight || p.DAYNIGHT || ""),
+      };
+    });
+}
 
-  for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(",");
-    if (values.length < headers.length) continue;
+export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams;
+  const sensor = (searchParams.get("sensor") || "VIIRS") as Sensor;
+  const timeWindow = (searchParams.get("window") || "24h") as TimeWindow;
 
-    const obj: Record<string, string> = {};
-    headers.forEach((h, idx) => {
-      obj[h.trim()] = values[idx]?.trim() || "";
+  const apiKey = process.env.NASA_FIRMS_KEY || "DEMO_KEY";
+  const layers = getWfsLayers(sensor, timeWindow);
+
+  const allHotspots: HotspotData[] = [];
+  const errors: string[] = [];
+
+  try {
+    // Try each layer - some may not be available
+    for (const layer of layers) {
+      try {
+        const url = `${FIRMS_WFS}/${apiKey}/?SERVICE=WFS&REQUEST=GetFeature&VERSION=2.0.0&TYPENAME=${layer}&STARTINDEX=0&COUNT=10000&SRSNAME=urn:ogc:def:crs:EPSG::4326&BBOX=${INDO_BBOX},urn:ogc:def:crs:EPSG::4326&outputformat=geojson`;
+
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(20000),
+        });
+
+        if (response.ok) {
+          const contentType = response.headers.get("content-type") || "";
+          const text = await response.text();
+
+          // Check if it's valid GeoJSON
+          if (contentType.includes("json") || text.startsWith("{")) {
+            const geojson = JSON.parse(text) as WfsResponse;
+            const hotspots = parseWfsFeatures(geojson);
+            allHotspots.push(...hotspots);
+          }
+        }
+      } catch (e) {
+        errors.push(`${layer}: ${String(e)}`);
+        continue;
+      }
+    }
+
+    // Deduplicate by lat/lng/acq_date/acq_time
+    const seen = new Set<string>();
+    const unique = allHotspots.filter((h) => {
+      const key = `${h.latitude.toFixed(4)}_${h.longitude.toFixed(4)}_${h.acq_date}_${h.acq_time}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
 
-    const lat = parseFloat(obj.latitude) || 0;
-    const lng = parseFloat(obj.longitude) || 0;
-
-    // Filter to Indonesia bounds
-    if (lat < -11 || lat > 6 || lng < 95 || lng > 141) continue;
-
-    hotspots.push({
-      latitude: lat,
-      longitude: lng,
-      brightness: parseFloat(obj.brightness || obj.bright_ti4) || 0,
-      scan: parseFloat(obj.scan) || 0,
-      track: parseFloat(obj.track) || 0,
-      acq_date: obj.acq_date || "",
-      acq_time: obj.acq_time || "",
-      satellite: obj.satellite || "",
-      instrument: obj.instrument || "",
-      confidence: obj.confidence || "",
-      bright_ti4: parseFloat(obj.bright_ti4) || 0,
-      bright_ti5: parseFloat(obj.bright_ti5) || 0,
-      frp: parseFloat(obj.frp) || 0,
-      daynight: obj.daynight || "",
-    });
+    return NextResponse.json(
+      {
+        data: unique,
+        count: unique.length,
+        fetched_at: new Date().toISOString(),
+        layers_tried: layers,
+      },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        },
+      }
+    );
+  } catch (error) {
+    console.error("FIRMS WFS fetch error:", error);
+    return NextResponse.json(
+      { error: "Internal server error", detail: String(error), errors },
+      { status: 500 }
+    );
   }
-
-  return hotspots;
 }
