@@ -43,7 +43,7 @@
 
 ```bash
 # Clone repo
-git clone https://github.com/YOUR_USERNAME/indonesia-wildfire-map.git
+git clone https://github.com/suanggiLaut/indonesia-wildfire-map.git
 cd indonesia-wildfire-map
 
 # Install dependencies
