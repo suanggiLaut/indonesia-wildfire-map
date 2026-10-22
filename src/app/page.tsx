@@ -70,7 +70,7 @@ export default function Home() {
   }, [fetchData]);
 
   return (
-    <div className="h-screen bg-terminal-bg text-terminal-text font-mono flex flex-col overflow-hidden">
+    <div className="min-h-screen bg-terminal-bg text-terminal-text font-mono flex flex-col">
       {/* Header */}
       <header className="border-b border-terminal-border flex-shrink-0">
         <div className="max-w-[1800px] mx-auto px-3 sm:px-4 py-2 sm:py-3">
@@ -119,8 +119,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main content — fills remaining height */}
-      <main className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+      {/* Main content */}
+      <main className="flex-1 flex flex-col lg:flex-row" style={{ minHeight: "calc(100vh - 200px)" }}>
         {/* Sidebar toggle (mobile/tablet) */}
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -289,6 +289,110 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Info section */}
+      <section className="border-t border-terminal-border">
+        <div className="max-w-4xl mx-auto px-4 py-8 sm:py-12 space-y-8 sm:space-y-10">
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-terminal-text mb-3">
+              Apa yang ditampilkan
+            </h2>
+            <p className="text-[11px] sm:text-xs text-terminal-muted leading-relaxed">
+              Peta ini menampilkan <strong className="text-terminal-orange">titik panas (hotspot)</strong>{" "}
+              yang terdeteksi oleh satelit NASA di seluruh wilayah Indonesia.
+              Titik oranye adalah hotspot aktif yang terdeteksi oleh instrumen
+              VIIRS (resolusi 375m) dan MODIS (resolusi 1km). Data diambil dari{" "}
+              <strong className="text-terminal-accent">NASA FIRMS</strong>{" "}
+              (Fire Information for Resource Management System) — sumber data
+              yang sama yang digunakan oleh BMKG dan KLHK untuk pemantauan
+              karhutla.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-terminal-text mb-3">
+              Klasifikasi Fire Power
+            </h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px] sm:text-xs">
+                <thead>
+                  <tr className="text-terminal-muted border-b border-terminal-border">
+                    <th className="text-left py-2 pr-4">Kelas</th>
+                    <th className="text-left py-2 pr-4">Fire Radiative Power</th>
+                    <th className="text-left py-2">Keterangan</th>
+                  </tr>
+                </thead>
+                <tbody className="text-terminal-text">
+                  <tr className="border-b border-terminal-border/30">
+                    <td className="py-2 pr-4"><span className="text-fire-low">● LOW</span></td>
+                    <td className="py-2 pr-4">&lt; 20 MW</td>
+                    <td className="py-2 text-terminal-muted">Titik panas kecil, bisa jadi pembakaran lahan</td>
+                  </tr>
+                  <tr className="border-b border-terminal-border/30">
+                    <td className="py-2 pr-4"><span className="text-fire-moderate">● MODERATE</span></td>
+                    <td className="py-2 pr-4">20–50 MW</td>
+                    <td className="py-2 text-terminal-muted">Kebakaran sedang</td>
+                  </tr>
+                  <tr className="border-b border-terminal-border/30">
+                    <td className="py-2 pr-4"><span className="text-fire-high">● HIGH</span></td>
+                    <td className="py-2 pr-4">50–200 MW</td>
+                    <td className="py-2 text-terminal-muted">Kebakaran signifikan</td>
+                  </tr>
+                  <tr className="border-b border-terminal-border/30">
+                    <td className="py-2 pr-4"><span className="text-fire-vhigh">● VERY HIGH</span></td>
+                    <td className="py-2 pr-4">200–500 MW</td>
+                    <td className="py-2 text-terminal-muted">Kebakaran besar</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2 pr-4"><span className="text-fire-extreme">● EXTREME</span></td>
+                    <td className="py-2 pr-4">≥ 500 MW</td>
+                    <td className="py-2 text-terminal-muted">Kebakaran sangat besar</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-terminal-text mb-3">
+              Sumber Data
+            </h2>
+            <ul className="text-[11px] sm:text-xs text-terminal-muted space-y-1.5 list-none">
+              <li>
+                <span className="text-terminal-orange">→</span>{" "}
+                <strong className="text-terminal-text">Hotspot:</strong> NASA
+                FIRMS — VIIRS (S-NPP, NOAA-20 & NOAA-21) dan MODIS (Terra & Aqua)
+              </li>
+              <li>
+                <span className="text-terminal-orange">→</span>{" "}
+                <strong className="text-terminal-text">Basemap:</strong> OpenStreetMap
+                (dark theme via CSS filter)
+              </li>
+              <li>
+                <span className="text-terminal-orange">→</span>{" "}
+                <strong className="text-terminal-text">Provinsi:</strong>{" "}
+                Bounding box assignment (estimasi, bukan batas administratif resmi)
+              </li>
+            </ul>
+          </div>
+
+          <div className="bg-terminal-surface border border-terminal-border rounded-lg p-4">
+            <h2 className="text-xs sm:text-sm font-bold text-terminal-red mb-2">
+              ⚠ Disclaimer
+            </h2>
+            <p className="text-[11px] sm:text-xs text-terminal-muted leading-relaxed">
+              Peta ini <strong className="text-terminal-text">BUKAN</strong>{" "}
+              layanan darurat. Data satelit memiliki jeda beberapa jam dan bisa
+              melewatkan kebakaran kecil. Hotspot juga bisa mendeteksi sumber
+              panas non-kebakaran seperti industri, gunung berapi, atau flare
+              gas. Untuk informasi resmi, hubungi{" "}
+              <strong className="text-terminal-accent">BNPB (117)</strong> atau
+              BPBD setempat. Untuk pelaporan karhutla, gunakan aplikasi{" "}
+              <strong className="text-terminal-accent">SiPongi</strong> KLHK.
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
