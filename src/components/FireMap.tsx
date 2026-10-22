@@ -33,10 +33,12 @@ export default function FireMap({
       maxZoom: 15,
       zoomControl: true,
       attributionControl: true,
+      dragging: true,
+      touchZoom: true,
     });
 
     // Dark basemap - OSM tiles with CSS dark filter
-    const tileLayer = L.tileLayer(
+    L.tileLayer(
       "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
       {
         attribution:
@@ -55,7 +57,23 @@ export default function FireMap({
     markersRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
 
+    // Force invalidateSize after a tick — critical fix for mobile
+    // Leaflet calculates container size on init, but on mobile the
+    // container may not have its final height yet (flex layout)
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 200);
+
+    // Also invalidate on resize / orientation change
+    const handleResize = () => {
+      setTimeout(() => map.invalidateSize(), 100);
+    };
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
+
     return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
       map.remove();
       mapRef.current = null;
     };
@@ -78,7 +96,7 @@ export default function FireMap({
     });
   }, [hotspots, firePower]);
 
-  // Update markers
+  // Update markers — use canvas renderer for performance with many points
   useEffect(() => {
     if (!markersRef.current) return;
     markersRef.current.clearLayers();
@@ -100,7 +118,7 @@ export default function FireMap({
       marker.bindPopup(
         `<div style="font-size:11px;line-height:1.6">
           <div style="font-weight:600;color:${color};margin-bottom:4px;">
-            🔥 ${getFirePowerLabel(cls)}
+            ${getFirePowerLabel(cls)}
           </div>
           <div>Lat: ${h.latitude.toFixed(4)}</div>
           <div>Lng: ${h.longitude.toFixed(4)}</div>
@@ -109,7 +127,7 @@ export default function FireMap({
           <div>Satelit: ${h.satellite}</div>
           <div>Waktu: ${h.acq_date} ${h.acq_time}</div>
           <div>Confidence: ${h.confidence}</div>
-          <div style="margin-top:4px;color:#737373;font-size:10px">${h.daynight === "D" ? "☀️ Siang" : "🌙 Malam"}</div>
+          <div style="margin-top:4px;color:#737373;font-size:10px">${h.daynight === "D" ? "Siang" : "Malam"}</div>
         </div>`
       );
 
@@ -136,11 +154,18 @@ export default function FireMap({
     }
   }, [selectedProvince]);
 
+  // Invalidate map when hotspots load (container might have resized)
+  useEffect(() => {
+    if (mapRef.current && hotspots.length > 0) {
+      setTimeout(() => mapRef.current?.invalidateSize(), 50);
+    }
+  }, [hotspots.length]);
+
   return (
-    <div className="relative w-full h-full">
-      <div ref={containerRef} className="w-full h-full" />
+    <div className="absolute inset-0">
+      <div ref={containerRef} className="w-full h-full" style={{ minHeight: "100%" }} />
       {/* Live indicator */}
-      <div className="absolute top-3 right-3 z-[1000] flex items-center gap-2 bg-terminal-surface/90 border border-terminal-border px-3 py-1.5 rounded text-xs">
+      <div className="absolute top-3 right-3 z-[1000] flex items-center gap-2 bg-terminal-surface/90 border border-terminal-border px-2 py-1 sm:px-3 sm:py-1.5 rounded text-[10px] sm:text-xs">
         <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse-live" />
         <span className="text-terminal-muted">LIVE</span>
         <span className="text-terminal-text font-semibold">

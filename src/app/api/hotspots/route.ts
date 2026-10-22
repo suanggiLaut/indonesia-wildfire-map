@@ -7,6 +7,16 @@ const FIRMS_WFS = "https://firms.modaps.eosdis.nasa.gov/mapserver/wfs/SouthEast_
 // Indonesia bounding box
 const INDO_BBOX = "-11,95,6,141";
 
+// In-memory cache
+let cache: {
+  key: string;
+  data: HotspotData[];
+  fetchedAt: string;
+  expires: number;
+} | null = null;
+
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 // WFS layer names per sensor and time window
 function getWfsLayers(sensor: Sensor, timeWindow: TimeWindow): string[] {
   const hours = timeWindow === "24h" ? "24hrs" : timeWindow === "48h" ? "48hrs" : "7days";
@@ -82,41 +92,63 @@ function parseWfsFeatures(geojson: WfsResponse): HotspotData[] {
     });
 }
 
+async function fetchLayer(layer: string, apiKey: string): Promise<HotspotData[]> {
+  const url = `${FIRMS_WFS}/${apiKey}/?SERVICE=WFS&REQUEST=GetFeature&VERSION=2.0.0&TYPENAME=${layer}&STARTINDEX=0&COUNT=5000&SRSNAME=urn:ogc:def:crs:EPSG::4326&BBOX=${INDO_BBOX},urn:ogc:def:crs:EPSG::4326&outputformat=geojson`;
+
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) return [];
+
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+
+  if (contentType.includes("json") || text.startsWith("{")) {
+    const geojson = JSON.parse(text) as WfsResponse;
+    return parseWfsFeatures(geojson);
+  }
+
+  return [];
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const sensor = (searchParams.get("sensor") || "VIIRS") as Sensor;
   const timeWindow = (searchParams.get("window") || "24h") as TimeWindow;
 
+  const cacheKey = `${sensor}_${timeWindow}`;
+
+  // Return cached data if fresh
+  if (cache && cache.key === cacheKey && Date.now() < cache.expires) {
+    return NextResponse.json(
+      {
+        data: cache.data,
+        count: cache.data.length,
+        fetched_at: cache.fetchedAt,
+        cached: true,
+      },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+        },
+      }
+    );
+  }
+
   const apiKey = process.env.NASA_FIRMS_KEY || "DEMO_KEY";
   const layers = getWfsLayers(sensor, timeWindow);
 
-  const allHotspots: HotspotData[] = [];
-  const errors: string[] = [];
-
   try {
-    // Try each layer - some may not be available
-    for (const layer of layers) {
-      try {
-        const url = `${FIRMS_WFS}/${apiKey}/?SERVICE=WFS&REQUEST=GetFeature&VERSION=2.0.0&TYPENAME=${layer}&STARTINDEX=0&COUNT=10000&SRSNAME=urn:ogc:def:crs:EPSG::4326&BBOX=${INDO_BBOX},urn:ogc:def:crs:EPSG::4326&outputformat=geojson`;
+    // Fetch ALL layers in parallel instead of sequentially
+    const results = await Promise.allSettled(
+      layers.map((layer) => fetchLayer(layer, apiKey))
+    );
 
-        const response = await fetch(url, {
-          signal: AbortSignal.timeout(20000),
-        });
-
-        if (response.ok) {
-          const contentType = response.headers.get("content-type") || "";
-          const text = await response.text();
-
-          // Check if it's valid GeoJSON
-          if (contentType.includes("json") || text.startsWith("{")) {
-            const geojson = JSON.parse(text) as WfsResponse;
-            const hotspots = parseWfsFeatures(geojson);
-            allHotspots.push(...hotspots);
-          }
-        }
-      } catch (e) {
-        errors.push(`${layer}: ${String(e)}`);
-        continue;
+    const allHotspots: HotspotData[] = [];
+    for (const result of results) {
+      if (result.status === "fulfilled") {
+        allHotspots.push(...result.value);
       }
     }
 
@@ -129,11 +161,21 @@ export async function GET(request: NextRequest) {
       return true;
     });
 
+    const fetchedAt = new Date().toISOString();
+
+    // Update cache
+    cache = {
+      key: cacheKey,
+      data: unique,
+      fetchedAt,
+      expires: Date.now() + CACHE_TTL,
+    };
+
     return NextResponse.json(
       {
         data: unique,
         count: unique.length,
-        fetched_at: new Date().toISOString(),
+        fetched_at: fetchedAt,
         layers_tried: layers,
       },
       {
@@ -145,7 +187,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("FIRMS WFS fetch error:", error);
     return NextResponse.json(
-      { error: "Internal server error", detail: String(error), errors },
+      { error: "Internal server error", detail: String(error) },
       { status: 500 }
     );
   }
